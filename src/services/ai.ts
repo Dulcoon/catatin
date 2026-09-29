@@ -1,41 +1,41 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { GoogleGenerativeAI, SchemaType } from '@google/generative-ai';
 import { config } from '../config.js';
 import { NewTransaction } from '../db/database.js';
 
-const SYSTEM_PROMPT = `Kamu adalah asisten ekstraktor data keuangan pribadi yang sangat presisi.
-Tugasmu adalah mengubah teks percakapan pengeluaran santai berbahasa Indonesia menjadi format JSON terstruktur.
+// Briefing Ultra-Ramping (~75 kata). 
+// Karena kita memakai responseSchema, kita tidak perlu membuang token untuk menulis contoh JSON atau larangan format.
+const SYSTEM_PROMPT = `Ekstrak data pengeluaran dari teks percakapan santai.
+Kategori wajib salah satu dari: makan, kopi, jajan, bensin, belanja, tagihan, transport, hiburan, lainnya.
+Aturan:
+- Konversi nominal: "25k"/"25rb" -> 25000, "0.5jt" -> 500000.
+- Tanggal gunakan YYYY-MM-DD. Hitung tanggal relatif terhadap tanggal referensi (misal "kemarin" = H-1).
+- Deskripsi singkat nama barang/keperluan.`;
 
-Kategori yang diizinkan:
-- makan (makanan pokok, nasi padang, warteg, sarapan, makan siang/malam, gofood/grabfood)
-- kopi (kopi, cafe, nongkrong di warkop/starbucks)
-- jajan (snack, boba, gorengan, es krim, camilan)
-- bensin (pertalite, pertamax, spbu, bensin motor/mobil)
-- belanja (belanja bulanan, minimarket, indomaret, alfamart, e-commerce, pakaian, barang)
-- tagihan (listrik, air, wifi, pulsa, kuota, sewa, cicilan)
-- transport (ojol, grab, gojek, parkir, tol, kereta)
-- hiburan (nonton bioskop, game, langganan netflix/spotify)
-- lainnya (jika tidak masuk ke kategori di atas)
-
-Aturan Ekstraksi:
-1. Kembalikan HANYA JSON murni berupa object dengan key "items" berisi array of transaksi. Tanpa format markdown tambahan jika memungkinkan, atau dalam block \`\`\`json.
-2. Jika ada kata nominal seperti "25k", "25rb", "25.000", ubah menjadi angka numerik utuh (25000).
-3. "0.5jt" atau "setengah juta" -> 500000.
-4. Tanggal: gunakan format YYYY-MM-DD. Gunakan tanggal referensi hari ini jika pengguna tidak menyebutkan tanggal spesifik.
-   Jika pengguna menyebut "kemarin", kurangi 1 hari dari tanggal referensi. "kemarin lusa" -> kurangi 2 hari.
-5. Bisa mengekstrak lebih dari 1 transaksi jika pengguna menyebut beberapa pengeluaran sekaligus dalam 1 pesan.
-6. Deskripsi harus ringkas dan jelas.
-
-Format Output Wajib:
-{
-  "items": [
-    {
-      "date": "YYYY-MM-DD",
-      "amount": 25000,
-      "category": "makan",
-      "description": "Nasi Padang + Es Teh"
+// Skema output ketat (Constrained Decoding) - Gemini dikunci di level token
+// sehingga mustahil memproduksi teks basa-basi atau format lain di luar JSON ini.
+const GEMINI_RESPONSE_SCHEMA: any = {
+  type: SchemaType.OBJECT,
+  properties: {
+    items: {
+      type: SchemaType.ARRAY,
+      description: 'Daftar pengeluaran yang terdeteksi',
+      items: {
+        type: SchemaType.OBJECT,
+        properties: {
+          date: { type: SchemaType.STRING, description: 'Format YYYY-MM-DD' },
+          amount: { type: SchemaType.INTEGER, description: 'Nominal bulat Rupiah' },
+          category: {
+            type: SchemaType.STRING,
+            enum: ['makan', 'kopi', 'jajan', 'bensin', 'belanja', 'tagihan', 'transport', 'hiburan', 'lainnya']
+          },
+          description: { type: SchemaType.STRING, description: 'Nama item atau keterangan' }
+        },
+        required: ['date', 'amount', 'category', 'description']
+      }
     }
-  ]
-}`;
+  },
+  required: ['items']
+};
 
 // Ekstraksi via Google Gemini Flash
 async function parseWithGemini(userText: string, todayStr: string): Promise<NewTransaction[]> {
@@ -44,15 +44,21 @@ async function parseWithGemini(userText: string, todayStr: string): Promise<NewT
   }
 
   const genAI = new GoogleGenerativeAI(config.geminiApiKey);
+  
+  // Model di-briefing melalui systemInstruction resmi & generationConfig terikat ketat
   const model = genAI.getGenerativeModel({
     model: config.geminiModel,
+    systemInstruction: SYSTEM_PROMPT,
     generationConfig: {
       responseMimeType: 'application/json',
-      temperature: 0.1
+      responseSchema: GEMINI_RESPONSE_SCHEMA,
+      maxOutputTokens: 300, // Batas keras (Hard Limit) token output: hemat dan anti-berlebihan
+      temperature: 0.1      // Sangat fokus dan deterministik (zero-creativity/rambling)
     }
   });
 
-  const prompt = `${SYSTEM_PROMPT}\n\nTanggal Referensi Hari Ini: ${todayStr}\nPesan Pengguna:\n"${userText}"`;
+  // Prompt input hanya berbobot ~20 token!
+  const prompt = `Tanggal referensi: ${todayStr}\nTeks: "${userText}"`;
   const result = await model.generateContent(prompt);
   const responseText = result.response.text();
 
@@ -75,12 +81,16 @@ async function parseWithFallback(userText: string, todayStr: string): Promise<Ne
     body: JSON.stringify({
       model: config.fallbackAiModel,
       temperature: 0.1,
+      max_tokens: 300, // Hard limit token output pada fallback
       response_format: { type: 'json_object' },
       messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
+        { 
+          role: 'system', 
+          content: `${SYSTEM_PROMPT}\nKembalikan HANYA format JSON: {"items":[{"date":"YYYY-MM-DD","amount":0,"category":"...","description":"..."}]}` 
+        },
         {
           role: 'user',
-          content: `Tanggal Referensi Hari Ini: ${todayStr}\nPesan Pengguna:\n"${userText}"`
+          content: `Tanggal referensi: ${todayStr}\nTeks: "${userText}"`
         }
       ]
     })
