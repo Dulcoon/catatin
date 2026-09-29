@@ -148,6 +148,11 @@ export function getRecentTransactions(limit = 20, offset = 0): Transaction[] {
   return db.prepare('SELECT * FROM transactions ORDER BY date DESC, id DESC LIMIT ? OFFSET ?').all(limit, offset) as Transaction[];
 }
 
+export function getTotalTransactionsCount(): number {
+  const row = db.prepare('SELECT COUNT(*) as count FROM transactions').get() as { count: number };
+  return row ? row.count : 0;
+}
+
 export function getTransactionsBetween(startDate: string, endDate: string): Transaction[] {
   return db.prepare('SELECT * FROM transactions WHERE date >= ? AND date <= ? ORDER BY date DESC, id DESC').all(startDate, endDate) as Transaction[];
 }

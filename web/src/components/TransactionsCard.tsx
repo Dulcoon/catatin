@@ -1,6 +1,6 @@
 import React, { useState } from "react"
-import { Plus, Trash2, ReceiptText, AlertCircle } from "lucide-react"
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card"
+import { Plus, Trash2, ReceiptText, ChevronLeft, ChevronRight } from "lucide-react"
+import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { formatRupiah } from "@/lib/utils"
@@ -13,14 +13,25 @@ export interface Transaction {
   date: string
 }
 
+export interface PaginationData {
+  page: number
+  limit: number
+  total: number
+  totalPages: number
+}
+
 interface TransactionsCardProps {
   transactions: Transaction[]
+  pagination: PaginationData
+  onPageChange: (page: number) => void
   onOpenAddModal: () => void
   onDeleteTransaction: (id: number) => Promise<void>
 }
 
 export function TransactionsCard({
   transactions,
+  pagination,
+  onPageChange,
   onOpenAddModal,
   onDeleteTransaction,
 }: TransactionsCardProps) {
@@ -36,6 +47,10 @@ export function TransactionsCard({
       }
     }
   }
+
+  const { page, totalPages, total, limit } = pagination
+  const startItem = total === 0 ? 0 : (page - 1) * limit + 1
+  const endItem = Math.min(page * limit, total)
 
   return (
     <Card className="border-border/70 bg-card/70 backdrop-blur-xl shadow-md">
@@ -60,7 +75,7 @@ export function TransactionsCard({
         </div>
       </CardHeader>
 
-      <CardContent className="p-5 pt-1">
+      <CardContent className="p-5 pt-1 pb-3">
         {transactions.length === 0 ? (
           <div className="rounded-xl border border-dashed border-border/70 p-8 text-center flex flex-col items-center justify-center gap-2">
             <div className="size-10 rounded-full bg-secondary/60 flex items-center justify-center text-muted-foreground">
@@ -116,6 +131,47 @@ export function TransactionsCard({
           </div>
         )}
       </CardContent>
+
+      {/* Pagination Footer */}
+      {total > 0 && (
+        <CardFooter className="p-4 pt-2 border-t border-border/40 flex items-center justify-between gap-2 text-xs">
+          <span className="text-muted-foreground font-mono text-[11px]">
+            {totalPages > 1
+              ? `${startItem}–${endItem} dari ${total} transaksi`
+              : `${total} transaksi tercatat`}
+          </span>
+
+          {totalPages > 1 && (
+            <div className="flex items-center gap-1.5">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => onPageChange(page - 1)}
+                disabled={page <= 1}
+                className="h-7 px-2 gap-1 text-[11px] border-border/80 text-muted-foreground hover:text-foreground"
+              >
+                <ChevronLeft className="size-3" />
+                <span className="hidden sm:inline">Sebelumnya</span>
+              </Button>
+
+              <span className="px-2 py-0.5 rounded bg-secondary/50 font-mono text-[11px] font-medium text-foreground">
+                {page} / {totalPages}
+              </span>
+
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => onPageChange(page + 1)}
+                disabled={page >= totalPages}
+                className="h-7 px-2 gap-1 text-[11px] border-border/80 text-muted-foreground hover:text-foreground"
+              >
+                <span className="hidden sm:inline">Selanjutnya</span>
+                <ChevronRight className="size-3" />
+              </Button>
+            </div>
+          )}
+        </CardFooter>
+      )}
     </Card>
   )
 }

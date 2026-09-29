@@ -8,6 +8,7 @@ import {
   getCategoryBreakdown,
   getDailyComparison,
   getRecentTransactions,
+  getTotalTransactionsCount,
   insertTransactions,
   deleteTransaction,
   getSetting,
@@ -87,12 +88,25 @@ app.get('/api/analytics/weekly', requireAuth, (c) => {
   });
 });
 
-// Daftar Transaksi
+// Daftar Transaksi dengan Pagination
 app.get('/api/transactions', requireAuth, (c) => {
-  const limit = parseInt(c.req.query('limit') || '30', 10);
-  const offset = parseInt(c.req.query('offset') || '0', 10);
+  const page = Math.max(1, parseInt(c.req.query('page') || '1', 10));
+  const limit = Math.max(1, Math.min(100, parseInt(c.req.query('limit') || '10', 10)));
+  const offset = (page - 1) * limit;
+
   const transactions = getRecentTransactions(limit, offset);
-  return c.json({ transactions });
+  const total = getTotalTransactionsCount();
+  const totalPages = Math.max(1, Math.ceil(total / limit));
+
+  return c.json({
+    transactions,
+    pagination: {
+      page,
+      limit,
+      total,
+      totalPages
+    }
+  });
 });
 
 // Tambah Transaksi Manual via Web

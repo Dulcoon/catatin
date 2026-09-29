@@ -5,7 +5,7 @@ import { LockedScreen } from "@/components/LockedScreen"
 import { HeroMetricCard } from "@/components/HeroMetricCard"
 import { DailyComparisonChart, DailyDataPoint } from "@/components/DailyComparisonChart"
 import { CategoryBreakdown, CategoryDataPoint } from "@/components/CategoryBreakdown"
-import { TransactionsCard, Transaction } from "@/components/TransactionsCard"
+import { TransactionsCard, Transaction, PaginationData } from "@/components/TransactionsCard"
 import { AddTransactionModal } from "@/components/AddTransactionModal"
 import { SettingsModal } from "@/components/SettingsModal"
 
@@ -22,6 +22,12 @@ export function App() {
     daily: DailyDataPoint[]
   } | null>(null)
   const [transactions, setTransactions] = useState<Transaction[]>([])
+  const [pagination, setPagination] = useState<PaginationData>({
+    page: 1,
+    limit: 10,
+    total: 0,
+    totalPages: 1,
+  })
 
   // Setup Telegram WebApp window if present
   useEffect(() => {
@@ -63,17 +69,33 @@ export function App() {
     return false
   }, [])
 
-  // Load Dashboard Data
-  const loadDashboardData = useCallback(async () => {
+  // Fetch only transactions with page
+  const fetchTransactions = useCallback(async (page: number) => {
+    try {
+      const txData = await api.getTransactions(page, 10)
+      setTransactions(txData.transactions || [])
+      if (txData.pagination) {
+        setPagination(txData.pagination)
+      }
+    } catch (err) {
+      console.error("Error loading transactions:", err)
+    }
+  }, [])
+
+  // Load Dashboard Data (Analytics + Transactions)
+  const loadDashboardData = useCallback(async (targetPage = 1) => {
     setIsRefreshing(true)
     try {
       const [analyticsData, txData] = await Promise.all([
         api.getWeeklyAnalytics(),
-        api.getTransactions(30),
+        api.getTransactions(targetPage, 10),
       ])
 
       setAnalytics(analyticsData)
       setTransactions(txData.transactions || [])
+      if (txData.pagination) {
+        setPagination(txData.pagination)
+      }
     } catch (err: any) {
       console.error("Error loading dashboard data:", err)
       if (err.message && err.message.includes("401")) {
@@ -88,12 +110,16 @@ export function App() {
   useEffect(() => {
     authenticate().then((isAuthed) => {
       if (isAuthed) {
-        loadDashboardData()
+        loadDashboardData(1)
       }
     })
   }, [authenticate, loadDashboardData])
 
   // Handlers
+  const handlePageChange = (newPage: number) => {
+    fetchTransactions(newPage)
+  }
+
   const handleAddTransaction = async (tx: {
     amount: number
     category: string
@@ -101,12 +127,17 @@ export function App() {
     date: string
   }) => {
     await api.addTransaction(tx)
-    await loadDashboardData()
+    // Refresh to page 1 so the new transaction is immediately visible at the top
+    await loadDashboardData(1)
   }
 
   const handleDeleteTransaction = async (id: number) => {
     await api.deleteTransaction(id)
-    await loadDashboardData()
+    // If we're on a page > 1 and this was the last item on the page, move to previous page
+    const targetPage = transactions.length === 1 && pagination.page > 1
+      ? pagination.page - 1
+      : pagination.page
+    await loadDashboardData(targetPage)
   }
 
   // Display locked screen if unauthorized
@@ -136,7 +167,7 @@ export function App() {
       <Header
         periodLabel={periodLabel}
         isRefreshing={isRefreshing}
-        onRefresh={loadDashboardData}
+        onRefresh={() => loadDashboardData(pagination.page)}
         onOpenSettings={() => setModalSettingsOpen(true)}
       />
 
@@ -151,9 +182,11 @@ export function App() {
         {/* Category Breakdown */}
         <CategoryBreakdown categories={analytics?.categories || []} />
 
-        {/* Transactions List */}
+        {/* Transactions List with Pagination */}
         <TransactionsCard
           transactions={transactions}
+          pagination={pagination}
+          onPageChange={handlePageChange}
           onOpenAddModal={() => setModalAddOpen(true)}
           onDeleteTransaction={handleDeleteTransaction}
         />
@@ -169,7 +202,7 @@ export function App() {
       <SettingsModal
         open={modalSettingsOpen}
         onOpenChange={setModalSettingsOpen}
-        onSaved={loadDashboardData}
+        onSaved={() => loadDashboardData(pagination.page)}
       />
     </div>
   )

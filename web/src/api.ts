@@ -67,9 +67,9 @@ export const api = {
     return await res.json();
   },
 
-  // Ambil Riwayat Transaksi
-  async getTransactions(limit = 30) {
-    const res = await authFetch(`/api/transactions?limit=${limit}`);
+  // Ambil Riwayat Transaksi dengan Pagination
+  async getTransactions(page = 1, limit = 10) {
+    const res = await authFetch(`/api/transactions?page=${page}&limit=${limit}`);
     if (!res.ok) throw new Error('Gagal mengambil daftar transaksi');
     return await res.json();
   },
