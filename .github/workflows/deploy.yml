@@ -40,7 +40,15 @@ jobs:
           port: ${{ secrets.VPS_PORT || 22 }}
           script: |
             set -e
+            # Muat environment NVM / Node.js agar npm & pm2 terbaca di SSH non-interactive
+            export NVM_DIR="$HOME/.nvm"
+            [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+            [ -s "$HOME/.profile" ] && source "$HOME/.profile"
+            [ -s "$HOME/.bashrc" ] && source "$HOME/.bashrc"
+            export PATH=$PATH:/usr/local/bin:/usr/bin:~/.nvm/versions/node/$(ls ~/.nvm/versions/node 2>/dev/null | tail -n 1)/bin
+
             echo "🚀 Memulai proses deploy ke VPS..."
+            echo "Menggunakan Node: $(node -v 2>/dev/null || echo 'not found') | NPM: $(npm -v 2>/dev/null || echo 'not found')"
 
             # 1. Pindah ke folder project di VPS
             TARGET_DIR="${{ secrets.VPS_TARGET_DIR || '~/catatin' }}"
