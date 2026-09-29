@@ -121,15 +121,13 @@ export function initBot(serverPublicUrl = ''): Bot | null {
 
   // Command /web
   bot.command('web', async (ctx) => {
-    const webUrl = getWebUrl();
-    const pin = getSetting('dashboard_pin', config.dashboardPin);
     const keyboard = new InlineKeyboard();
     addWebButton(keyboard, '📊 Buka Web Dashboard');
 
     await ctx.reply(
-      `🌐 **Akses Web Dashboard Analitik**\n\n` +
-      `• **Lewat Telegram:** Klik tombol di bawah untuk membuka langsung tanpa login.\n` +
-      `• **Lewat Browser HP/Laptop:** Buka \`${webUrl}\` dan masukkan PIN: **${pin}**`,
+      `🌐 **Web Dashboard Analitik (Akses Privat)**\n\n` +
+      `Dashboard ini diproteksi secara privat dan hanya dapat dibuka langsung melalui aplikasi Telegram Anda.\n\n` +
+      `Klik tombol di bawah untuk membuka dashboard seketika tanpa perlu login!`,
       { reply_markup: keyboard, parse_mode: 'Markdown' }
     );
   });

@@ -13,7 +13,7 @@ import {
   getSetting,
   setSetting
 } from '../db/database.js';
-import { verifyPin, verifySessionToken, verifyTelegramWebAppData, createSessionToken } from './auth.js';
+import { verifyTelegramWebAppData, createTelegramSessionToken, verifyTelegramSessionToken } from './auth.js';
 import { runWeeklyRecapJob } from '../services/cron.js';
 
 export const app = new Hono();
@@ -21,7 +21,7 @@ export const app = new Hono();
 // Enable CORS
 app.use('*', cors());
 
-// Auth Middleware untuk API
+// Strict Auth Middleware: Wajib memiliki identitas Telegram yang valid dan cocok dengan pemilik
 const requireAuth = async (c: any, next: any) => {
   // 1. Cek header initData Telegram WebApp
   const tgInitData = c.req.header('x-telegram-init-data');
@@ -32,47 +32,34 @@ const requireAuth = async (c: any, next: any) => {
     }
   }
 
-  // 2. Cek Bearer Session Token
+  // 2. Cek Bearer Session Token yang dihasilkan dari login Telegram sebelumnya
   const authHeader = c.req.header('authorization');
   if (authHeader && authHeader.startsWith('Bearer ')) {
     const token = authHeader.substring(7);
-    if (verifySessionToken(token)) {
+    if (verifyTelegramSessionToken(token)) {
       return await next();
     }
   }
 
-  return c.json({ error: 'Unauthorized. Harap masukkan PIN atau buka melalui bot Telegram.' }, 401);
+  return c.json({ error: 'Akses Ditolak. Dashboard ini hanya dapat diakses secara privat melalui Bot Telegram pemilik.' }, 403);
 };
 
 // -------------------------------------------------------------
-// Endpoint Publik / Otentikasi
+// Endpoint Publik / Otentikasi Telegram Saja
 // -------------------------------------------------------------
 
-// Verifikasi PIN
-app.post('/api/auth/pin', async (c) => {
-  const body = await c.req.json().catch(() => ({}));
-  const { pin } = body;
-
-  if (!pin || !verifyPin(pin)) {
-    return c.json({ success: false, error: 'PIN tidak sesuai.' }, 401);
-  }
-
-  const token = createSessionToken();
-  return c.json({ success: true, token });
-});
-
-// Verifikasi Telegram WebApp
+// Verifikasi Telegram WebApp secara Kriptografis
 app.post('/api/auth/telegram', async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const { initData } = body;
 
-  const { isValid, userId } = verifyTelegramWebAppData(initData);
-  if (!isValid) {
-    return c.json({ success: false, error: 'Verifikasi Telegram WebApp gagal.' }, 401);
+  const result = verifyTelegramWebAppData(initData);
+  if (!result.isValid || !result.userId) {
+    return c.json({ success: false, error: result.error || 'Verifikasi Telegram gagal.' }, 403);
   }
 
-  const token = createSessionToken();
-  return c.json({ success: true, token, userId });
+  const token = createTelegramSessionToken(result.userId);
+  return c.json({ success: true, token, userId: result.userId, username: result.username });
 });
 
 // Cek status sesi
@@ -155,9 +142,6 @@ app.post('/api/settings', requireAuth, async (c) => {
   }
   if (body.warningThresholdPercent) {
     setSetting('warning_threshold_pct', body.warningThresholdPercent.toString());
-  }
-  if (body.newPin) {
-    setSetting('dashboard_pin', body.newPin.toString());
   }
   return c.json({ success: true });
 });

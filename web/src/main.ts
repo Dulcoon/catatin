@@ -2,10 +2,7 @@ import { api, setStoredToken } from './api.js';
 import { renderDailyComparisonChart, renderCategoryBreakdown, formatRupiah } from './charts.js';
 
 // DOM Elements
-const authScreen = document.getElementById('auth-screen')!;
-const pinForm = document.getElementById('pin-form') as HTMLFormElement;
-const pinInput = document.getElementById('pin-input') as HTMLInputElement;
-const pinError = document.getElementById('pin-error')!;
+const lockedScreen = document.getElementById('locked-screen')!;
 
 const btnRefresh = document.getElementById('btn-refresh')!;
 const btnOpenSettings = document.getElementById('btn-open-settings')!;
@@ -37,7 +34,6 @@ const btnCloseSettingsModal = document.getElementById('btn-close-settings-modal'
 const settingsForm = document.getElementById('settings-form') as HTMLFormElement;
 const settingWeeklyBudgetInput = document.getElementById('setting-weekly-budget') as HTMLInputElement;
 const settingThresholdInput = document.getElementById('setting-threshold') as HTMLInputElement;
-const settingPinInput = document.getElementById('setting-pin') as HTMLInputElement;
 const btnTestRecap = document.getElementById('btn-test-recap') as HTMLButtonElement;
 
 // Inisialisasi Tanggal Hari Ini untuk Form
@@ -54,55 +50,34 @@ function setupTelegramWebApp() {
   }
 }
 
-// Cek Otentikasi
+// Cek Otentikasi: Strictly Telegram-Only
 async function authenticate(): Promise<boolean> {
   const tg = (window as any).Telegram?.WebApp;
 
-  // 1. Coba login otomatis via data Telegram WebApp jika tersedia
+  // 1. Wajib memiliki initData dari aplikasi Telegram
   if (tg?.initData) {
     try {
       const res = await api.loginWithTelegram(tg.initData);
       if (res.success && res.token) {
-        authScreen.classList.add('hidden');
+        lockedScreen.classList.add('hidden');
         return true;
       }
     } catch (err) {
-      console.warn('Auto-login Telegram WebApp gagal, beralih ke form PIN.');
+      console.error('Verifikasi Telegram WebApp gagal:', err);
     }
   }
 
-  // 2. Cek apakah token tersimpan di browser masih valid
+  // 2. Cek apakah token sesi lokal yang tersimpan di WebView masih valid
   const isValid = await api.checkAuth();
   if (isValid) {
-    authScreen.classList.add('hidden');
+    lockedScreen.classList.add('hidden');
     return true;
   }
 
-  // 3. Tampilkan layar PIN
-  authScreen.classList.remove('hidden');
-  pinInput.focus();
+  // 3. Jika dibuka di luar Telegram (Chrome / Safari biasa), kunci akses total
+  lockedScreen.classList.remove('hidden');
   return false;
 }
-
-// Handler Submit PIN
-pinForm.addEventListener('submit', async (e) => {
-  e.preventDefault();
-  pinError.classList.add('hidden');
-  const pin = pinInput.value.trim();
-
-  try {
-    const res = await api.loginWithPin(pin);
-    if (res.success) {
-      authScreen.classList.add('hidden');
-      pinInput.value = '';
-      await loadDashboardData();
-    } else {
-      pinError.classList.remove('hidden');
-    }
-  } catch (err) {
-    pinError.classList.remove('hidden');
-  }
-});
 
 // Memuat dan Merender Seluruh Data Dashboard
 async function loadDashboardData() {
@@ -167,7 +142,7 @@ async function loadDashboardData() {
   } catch (err: any) {
     console.error('Error memuat data dashboard:', err);
     if (err.message && err.message.includes('401')) {
-      authScreen.classList.remove('hidden');
+      lockedScreen.classList.remove('hidden');
     }
   }
 }
@@ -265,7 +240,6 @@ btnOpenSettings.addEventListener('click', async () => {
     const settings = await api.getSettings();
     settingWeeklyBudgetInput.value = settings.weeklyBudget.toString();
     settingThresholdInput.value = settings.warningThresholdPercent.toString();
-    settingPinInput.value = '';
     modalSettings.classList.remove('hidden');
   } catch (err) {
     alert('Gagal mengambil pengaturan.');
@@ -284,10 +258,8 @@ settingsForm.addEventListener('submit', async (e) => {
   e.preventDefault();
   const weeklyBudget = parseInt(settingWeeklyBudgetInput.value, 10);
   const warningThresholdPercent = parseInt(settingThresholdInput.value, 10);
-  const newPin = settingPinInput.value.trim();
 
   const payload: any = { weeklyBudget, warningThresholdPercent };
-  if (newPin) payload.newPin = newPin;
 
   try {
     await api.updateSettings(payload);

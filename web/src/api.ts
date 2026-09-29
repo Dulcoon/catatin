@@ -35,21 +35,7 @@ async function authFetch(url: string, options: RequestInit = {}): Promise<Respon
 }
 
 export const api = {
-  // Login PIN
-  async loginWithPin(pin: string): Promise<{ success: boolean; token?: string; error?: string }> {
-    const res = await fetch('/api/auth/pin', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ pin })
-    });
-    const data = await res.json();
-    if (res.ok && data.token) {
-      setStoredToken(data.token);
-    }
-    return data;
-  },
-
-  // Login Telegram WebApp
+  // Login Telegram WebApp (Satu-satunya metode otentikasi)
   async loginWithTelegram(initData: string): Promise<{ success: boolean; token?: string }> {
     const res = await fetch('/api/auth/telegram', {
       method: 'POST',
@@ -119,7 +105,7 @@ export const api = {
   },
 
   // Simpan Pengaturan
-  async updateSettings(settings: { weeklyBudget?: number; warningThresholdPercent?: number; newPin?: string }) {
+  async updateSettings(settings: { weeklyBudget?: number; warningThresholdPercent?: number }) {
     const res = await authFetch('/api/settings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

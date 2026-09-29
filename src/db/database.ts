@@ -84,7 +84,6 @@ export function initDatabase() {
 
   setIfMissing('weekly_budget', config.weeklyBudget.toString());
   setIfMissing('warning_threshold_pct', config.warningThresholdPercent.toString());
-  setIfMissing('dashboard_pin', config.dashboardPin);
 }
 
 // Helper Tanggal: Dapatkan rentang Senin - Minggu

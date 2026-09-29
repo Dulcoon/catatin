@@ -1,7 +1,7 @@
 import { initDatabase, insertTransactions, getWeeklyComparison, getCategoryBreakdown, getDailyComparison, deleteTransaction } from '../db/database.js';
 import { parseWithRegex } from '../services/ai.js';
 import { checkBudgetAlert } from '../services/budget.js';
-import { verifyPin, createSessionToken, verifySessionToken } from '../server/auth.js';
+import { createTelegramSessionToken, verifyTelegramSessionToken } from '../server/auth.js';
 
 console.log('🧪 Memulai Verifikasi Otomatis Sistem Catatin...');
 
@@ -66,15 +66,15 @@ const alert = checkBudgetAlert();
 console.log('Status Alert Budget:', alert.alertType, alert.message ? '(Ada Notifikasi)' : '(Normal)');
 console.log('✅ 6. Evaluasi deteksi boros / budget alert berfungsi.');
 
-// 7. Uji Autentikasi PIN & Session Token
-const isPinValid = verifyPin('1234');
-const token = createSessionToken();
-const isTokenValid = verifySessionToken(token);
+// 7. Uji Autentikasi Sesi Telegram Terikat Pemilik
+const testUserId = 123456789;
+const sessionToken = createTelegramSessionToken(testUserId);
+const isTokenValid = verifyTelegramSessionToken(sessionToken);
 
-if (!isPinValid || !isTokenValid) {
-  throw new Error('Verifikasi PIN atau token gagal!');
+if (!isTokenValid) {
+  throw new Error('Verifikasi token sesi Telegram gagal!');
 }
-console.log('✅ 7. Autentikasi PIN dan verifikasi token sesi valid.');
+console.log('✅ 7. Otentikasi sesi Telegram kriptografis valid.');
 
 // 8. Uji Hapus Transaksi (Cleanup test records)
 for (const item of inserted) {
