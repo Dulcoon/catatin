@@ -1,0 +1,66 @@
+name: Deploy to VPS
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch: # Memungkinkan tombol 'Run workflow' manual di GitHub
+
+jobs:
+  validate:
+    name: Test & Build Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Run Build
+        run: npm run build
+
+  deploy:
+    name: Deploy to VPS
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: SSH Deploy via appleboy/ssh-action
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          script: |
+            set -e
+            echo "🚀 Memulai proses deploy ke VPS..."
+
+            # 1. Pindah ke folder project di VPS
+            TARGET_DIR="${{ secrets.VPS_TARGET_DIR || '~/catatin' }}"
+            cd "$TARGET_DIR"
+
+            # 2. Ambil perubahan terbaru dari GitHub
+            echo "📥 Mengambil kode terbaru dari branch main..."
+            git pull origin main
+
+            # 3. Instal dependencies jika ada penambahan package baru
+            echo "📦 Menginstal dependensi..."
+            npm install
+
+            # 4. Build frontend Vite dan backend TypeScript
+            echo "🔨 Melakukan build produksi..."
+            npm run build
+
+            # 5. Reload proses PM2 (Zero Downtime)
+            echo "🔄 Mereload aplikasi di PM2..."
+            pm2 reload ecosystem.config.cjs --update-env || pm2 start ecosystem.config.cjs
+            pm2 save
+
+            echo "✅ Deployment Catatin berhasil diselesaikan!"
