@@ -6,6 +6,7 @@ export const config = {
   adminTelegramId: process.env.ADMIN_TELEGRAM_ID ? parseInt(process.env.ADMIN_TELEGRAM_ID, 10) : 0,
   telegramBotToken: process.env.TELEGRAM_BOT_TOKEN || '',
   dashboardPin: process.env.DASHBOARD_PIN || '1234',
+  publicUrl: (process.env.PUBLIC_URL || process.env.WEB_APP_URL || '').replace(/\/+$/, ''),
   weeklyBudget: parseInt(process.env.WEEKLY_BUDGET || '500000', 10),
   warningThresholdPercent: parseInt(process.env.WARNING_THRESHOLD_PERCENT || '80', 10),
   

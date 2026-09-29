@@ -11,8 +11,13 @@ export async function runWeeklyRecapJob(serverPublicUrl = ''): Promise<boolean> 
   const topCategories = getCategoryBreakdown(comparison.currentWeekStart, comparison.currentWeekEnd);
   const message = formatWeeklyRecap(comparison, topCategories);
 
-  const webUrl = serverPublicUrl || `http://localhost:${config.port}`;
-  const keyboard = new InlineKeyboard().webApp('📊 Buka Dashboard Analitik', webUrl);
+  const webUrl = config.publicUrl || serverPublicUrl || `http://localhost:${config.port}`;
+  const keyboard = new InlineKeyboard();
+  if (webUrl.startsWith('https://')) {
+    keyboard.webApp('📊 Buka Dashboard Analitik', webUrl);
+  } else if (webUrl.startsWith('http://') && !webUrl.includes('localhost')) {
+    keyboard.url('📊 Buka Dashboard Analitik', webUrl);
+  }
 
   const sent = await sendNotificationToAdmin(message, keyboard);
   if (sent) {

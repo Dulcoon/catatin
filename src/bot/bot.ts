@@ -50,18 +50,26 @@ export function initBot(serverPublicUrl = ''): Bot | null {
     await next();
   });
 
-  // Helper Web URL
+  // Helper Web URL yang aman (Hanya gunakan WebApp jika HTTPS)
   const getWebUrl = () => {
-    return serverPublicUrl || `http://localhost:${config.port}`;
+    return config.publicUrl || serverPublicUrl || `http://localhost:${config.port}`;
+  };
+
+  const addWebButton = (keyboard: InlineKeyboard, label = '📊 Buka Dashboard') => {
+    const url = getWebUrl();
+    if (url.startsWith('https://')) {
+      return keyboard.webApp(label, url);
+    } else if (url.startsWith('http://') && !url.includes('localhost')) {
+      return keyboard.url(label, url);
+    }
+    return keyboard;
   };
 
   // Command /start
   bot.command('start', async (ctx) => {
-    const webUrl = getWebUrl();
-    const keyboard = new InlineKeyboard()
-      .webApp('📊 Buka Dashboard', webUrl)
-      .row()
-      .text('📋 Rekap Minggu Ini', 'btn_rekap');
+    const keyboard = new InlineKeyboard();
+    addWebButton(keyboard, '📊 Buka Dashboard');
+    keyboard.row().text('📋 Rekap Minggu Ini', 'btn_rekap');
 
     await ctx.reply(
       `👋 **Catatin Siap Digunakan!**\n\n` +
@@ -83,7 +91,8 @@ export function initBot(serverPublicUrl = ''): Bot | null {
     const topCategories = getCategoryBreakdown(comparison.currentWeekStart, comparison.currentWeekEnd);
     const message = formatWeeklyRecap(comparison, topCategories);
 
-    const keyboard = new InlineKeyboard().webApp('📊 Buka Dashboard Lengkap', getWebUrl());
+    const keyboard = new InlineKeyboard();
+    addWebButton(keyboard, '📊 Buka Dashboard Lengkap');
     await ctx.reply(message, { reply_markup: keyboard, parse_mode: 'Markdown' });
   });
 
@@ -114,7 +123,8 @@ export function initBot(serverPublicUrl = ''): Bot | null {
   bot.command('web', async (ctx) => {
     const webUrl = getWebUrl();
     const pin = getSetting('dashboard_pin', config.dashboardPin);
-    const keyboard = new InlineKeyboard().webApp('📊 Buka Web Dashboard', webUrl);
+    const keyboard = new InlineKeyboard();
+    addWebButton(keyboard, '📊 Buka Web Dashboard');
 
     await ctx.reply(
       `🌐 **Akses Web Dashboard Analitik**\n\n` +
@@ -130,7 +140,8 @@ export function initBot(serverPublicUrl = ''): Bot | null {
     const comparison = getWeeklyComparison();
     const topCategories = getCategoryBreakdown(comparison.currentWeekStart, comparison.currentWeekEnd);
     const message = formatWeeklyRecap(comparison, topCategories);
-    const keyboard = new InlineKeyboard().webApp('📊 Buka Dashboard Lengkap', getWebUrl());
+    const keyboard = new InlineKeyboard();
+    addWebButton(keyboard, '📊 Buka Dashboard Lengkap');
     await ctx.reply(message, { reply_markup: keyboard, parse_mode: 'Markdown' });
   });
 
@@ -177,7 +188,7 @@ export function initBot(serverPublicUrl = ''): Bot | null {
       if (savedItems.length === 1) {
         keyboard.text('❌ Batalkan', `delete_${savedItems[0].id}`);
       }
-      keyboard.webApp('📊 Buka Dashboard', getWebUrl());
+      addWebButton(keyboard, '📊 Buka Dashboard');
 
       await ctx.reply(replyText, {
         reply_markup: keyboard,
