@@ -67,6 +67,14 @@ export const api = {
     return await res.json();
   },
 
+  // Ambil Data Analitik Bulanan (Siklus Gajian)
+  async getMonthlyAnalytics(date?: string) {
+    const url = date ? `/api/analytics/monthly?date=${date}` : '/api/analytics/monthly';
+    const res = await authFetch(url);
+    if (!res.ok) throw new Error('Gagal mengambil data analitik bulanan');
+    return await res.json();
+  },
+
   // Ambil Riwayat Transaksi dengan Pagination
   async getTransactions(page = 1, limit = 10) {
     const res = await authFetch(`/api/transactions?page=${page}&limit=${limit}`);
@@ -105,7 +113,7 @@ export const api = {
   },
 
   // Simpan Pengaturan
-  async updateSettings(settings: { weeklyBudget?: number; warningThresholdPercent?: number }) {
+  async updateSettings(settings: { weeklyBudget?: number; warningThresholdPercent?: number; paydayDate?: number }) {
     const res = await authFetch('/api/settings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

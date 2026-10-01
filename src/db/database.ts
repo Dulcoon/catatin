@@ -47,6 +47,23 @@ export interface WeeklyComparison {
   lastWeekEnd: string;
 }
 
+export interface SalaryCycleSummary {
+  payday: number;
+  startDate: string;
+  endDate: string;
+  label: string;
+  total: number;
+  transactionCount: number;
+  lastCycleTotal: number;
+  diffAmount: number;
+  diffPercentage: number;
+  isMoreThrifty: boolean;
+  daysPassed: number;
+  totalDays: number;
+  averagePerDay: number;
+  topCategories: CategorySummary[];
+}
+
 // Inisialisasi Database dengan WAL mode
 export const db = new Database(config.databasePath);
 db.pragma('journal_mode = WAL');
@@ -84,6 +101,7 @@ export function initDatabase() {
 
   setIfMissing('weekly_budget', config.weeklyBudget.toString());
   setIfMissing('warning_threshold_pct', config.warningThresholdPercent.toString());
+  setIfMissing('payday_date', '25');
 }
 
 // Helper Tanggal: Dapatkan rentang Senin - Minggu
@@ -111,6 +129,67 @@ export function getLastWeekDateRange(date = new Date()): { start: string; end: s
   const lastMonday = new Date(thisWeek.start);
   lastMonday.setDate(lastMonday.getDate() - 7);
   return getWeekDateRange(lastMonday);
+}
+
+// Helper Tanggal: Dapatkan rentang siklus gajian bulanan (Cut-off tgl N, default 25)
+export function getSalaryCycleDateRange(refDate = new Date(), payday = 25): {
+  start: string;
+  end: string;
+  label: string;
+  startDateObj: Date;
+  endDateObj: Date;
+} {
+  const d = new Date(refDate);
+  const year = d.getFullYear();
+  const month = d.getMonth();
+  const date = d.getDate();
+
+  let startYear = year, startMonth = month;
+  let endYear = year, endMonth = month;
+
+  // Jika hari ini sudah mencapai / melewati tgl gajian (misal >= 25), siklus baru dimulai (tgl 25 bulan ini s/d tgl 24 bulan depan)
+  // Jika belum, siklus masih berjalan dari tgl 25 bulan lalu s/d tgl 24 bulan ini
+  if (date >= payday) {
+    startMonth = month;
+    endMonth = month + 1;
+  } else {
+    startMonth = month - 1;
+    endMonth = month;
+  }
+
+  const startDate = new Date(startYear, startMonth, payday);
+  const endDate = new Date(endYear, endMonth, payday - 1);
+
+  const formatYMD = (dt: Date) => {
+    const y = dt.getFullYear();
+    const m = String(dt.getMonth() + 1).padStart(2, '0');
+    const day = String(dt.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  };
+
+  const idMonths = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+  const label = `${startDate.getDate()} ${idMonths[startDate.getMonth()]} – ${endDate.getDate()} ${idMonths[endDate.getMonth()]}`;
+
+  return {
+    start: formatYMD(startDate),
+    end: formatYMD(endDate),
+    label,
+    startDateObj: startDate,
+    endDateObj: endDate
+  };
+}
+
+export function getLastSalaryCycleDateRange(refDate = new Date(), payday = 25): {
+  start: string;
+  end: string;
+  label: string;
+  startDateObj: Date;
+  endDateObj: Date;
+} {
+  const current = getSalaryCycleDateRange(refDate, payday);
+  const prevRef = new Date(current.startDateObj);
+  prevRef.setDate(prevRef.getDate() - 1); // 1 hari sebelum awal siklus saat ini
+  return getSalaryCycleDateRange(prevRef, payday);
 }
 
 // CRUD Transaksi
@@ -225,6 +304,74 @@ export function getCategoryBreakdown(startDate: string, endDate: string): Catego
     count: r.count,
     percentage: grandTotal > 0 ? Math.round((r.total / grandTotal) * 100) : 0
   }));
+}
+
+// Rekapan Pengeluaran Siklus Gajian Bulanan
+export function getSalaryCycleSummary(refDate = new Date(), customPayday?: number): SalaryCycleSummary {
+  const paydaySetting = getSetting('payday_date', '25');
+  const payday = customPayday || parseInt(paydaySetting, 10) || 25;
+
+  const currentRange = getSalaryCycleDateRange(refDate, payday);
+  const lastRange = getLastSalaryCycleDateRange(refDate, payday);
+
+  // Total pengeluaran siklus ini
+  const sumStmt = db.prepare(`
+    SELECT COALESCE(SUM(amount), 0) as total, COUNT(*) as count 
+    FROM transactions 
+    WHERE date >= ? AND date <= ?
+  `);
+
+  const currentRes = sumStmt.get(currentRange.start, currentRange.end) as { total: number; count: number };
+  const lastRes = sumStmt.get(lastRange.start, lastRange.end) as { total: number; count: number };
+
+  const currentTotal = currentRes.total;
+  const count = currentRes.count;
+  const lastTotal = lastRes.total;
+
+  const diffAmount = Math.abs(currentTotal - lastTotal);
+  let diffPercentage = 0;
+  if (lastTotal > 0) {
+    diffPercentage = Math.round((diffAmount / lastTotal) * 100);
+  } else if (currentTotal > 0) {
+    diffPercentage = 100;
+  }
+  const isMoreThrifty = currentTotal <= lastTotal;
+
+  // Hitung jumlah hari siklus dan hari yang sudah terlewati
+  const now = new Date(refDate);
+  const startMs = currentRange.startDateObj.getTime();
+  const endMs = currentRange.endDateObj.getTime();
+  const nowMs = now.getTime();
+
+  const totalDays = Math.max(1, Math.round((endMs - startMs) / (1000 * 60 * 60 * 24)) + 1);
+  let daysPassed = 1;
+  if (nowMs < startMs) {
+    daysPassed = 1;
+  } else if (nowMs > endMs) {
+    daysPassed = totalDays;
+  } else {
+    daysPassed = Math.max(1, Math.round((nowMs - startMs) / (1000 * 60 * 60 * 24)) + 1);
+  }
+
+  const averagePerDay = Math.round(currentTotal / Math.max(1, daysPassed));
+  const topCategories = getCategoryBreakdown(currentRange.start, currentRange.end);
+
+  return {
+    payday,
+    startDate: currentRange.start,
+    endDate: currentRange.end,
+    label: currentRange.label,
+    total: currentTotal,
+    transactionCount: count,
+    lastCycleTotal: lastTotal,
+    diffAmount,
+    diffPercentage,
+    isMoreThrifty,
+    daysPassed,
+    totalDays,
+    averagePerDay,
+    topCategories
+  };
 }
 
 export function getDailyComparison(currentWeekStart: string, lastWeekStart: string): {

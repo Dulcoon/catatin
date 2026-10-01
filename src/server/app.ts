@@ -9,6 +9,7 @@ import {
   getDailyComparison,
   getRecentTransactions,
   getTotalTransactionsCount,
+  getSalaryCycleSummary,
   insertTransactions,
   deleteTransaction,
   getSetting,
@@ -88,6 +89,17 @@ app.get('/api/analytics/weekly', requireAuth, (c) => {
   });
 });
 
+// Analitik Bulanan / Siklus Gajian (Cut-off tanggal 25)
+app.get('/api/analytics/monthly', requireAuth, (c) => {
+  const dateParam = c.req.query('date');
+  const refDate = dateParam ? new Date(dateParam) : new Date();
+  const salaryCycle = getSalaryCycleSummary(refDate);
+
+  return c.json({
+    salaryCycle
+  });
+});
+
 // Daftar Transaksi dengan Pagination
 app.get('/api/transactions', requireAuth, (c) => {
   const page = Math.max(1, parseInt(c.req.query('page') || '1', 10));
@@ -145,7 +157,8 @@ app.delete('/api/transactions/:id', requireAuth, (c) => {
 app.get('/api/settings', requireAuth, (c) => {
   return c.json({
     weeklyBudget: parseInt(getSetting('weekly_budget', '500000'), 10),
-    warningThresholdPercent: parseInt(getSetting('warning_threshold_pct', '80'), 10)
+    warningThresholdPercent: parseInt(getSetting('warning_threshold_pct', '80'), 10),
+    paydayDate: parseInt(getSetting('payday_date', '25'), 10)
   });
 });
 
@@ -156,6 +169,9 @@ app.post('/api/settings', requireAuth, async (c) => {
   }
   if (body.warningThresholdPercent) {
     setSetting('warning_threshold_pct', body.warningThresholdPercent.toString());
+  }
+  if (body.paydayDate) {
+    setSetting('payday_date', body.paydayDate.toString());
   }
   return c.json({ success: true });
 });

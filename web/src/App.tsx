@@ -6,6 +6,7 @@ import { HeroMetricCard } from "@/components/HeroMetricCard"
 import { DailyComparisonChart, DailyDataPoint } from "@/components/DailyComparisonChart"
 import { CategoryBreakdown, CategoryDataPoint } from "@/components/CategoryBreakdown"
 import { TransactionsCard, Transaction, PaginationData } from "@/components/TransactionsCard"
+import { SalaryCycleCard, SalaryCycleData } from "@/components/SalaryCycleCard"
 import { AddTransactionModal } from "@/components/AddTransactionModal"
 import { SettingsModal } from "@/components/SettingsModal"
 
@@ -21,6 +22,7 @@ export function App() {
     categories: CategoryDataPoint[]
     daily: DailyDataPoint[]
   } | null>(null)
+  const [salaryCycle, setSalaryCycle] = useState<SalaryCycleData | null>(null)
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [pagination, setPagination] = useState<PaginationData>({
     page: 1,
@@ -82,16 +84,18 @@ export function App() {
     }
   }, [])
 
-  // Load Dashboard Data (Analytics + Transactions)
+  // Load Dashboard Data (Analytics + Monthly + Transactions)
   const loadDashboardData = useCallback(async (targetPage = 1) => {
     setIsRefreshing(true)
     try {
-      const [analyticsData, txData] = await Promise.all([
+      const [analyticsData, monthlyData, txData] = await Promise.all([
         api.getWeeklyAnalytics(),
+        api.getMonthlyAnalytics(),
         api.getTransactions(targetPage, 10),
       ])
 
       setAnalytics(analyticsData)
+      setSalaryCycle(monthlyData.salaryCycle || null)
       setTransactions(txData.transactions || [])
       if (txData.pagination) {
         setPagination(txData.pagination)
@@ -173,6 +177,9 @@ export function App() {
 
       {/* Main Content Area */}
       <main className="flex-1 w-full max-w-2xl mx-auto px-4 py-5 flex flex-col gap-5 pb-16">
+        {/* Monthly Salary Cycle Card */}
+        <SalaryCycleCard salaryCycle={salaryCycle} />
+
         {/* Hero Decision Card */}
         <HeroMetricCard comparison={analytics?.comparison || null} />
 

@@ -5,12 +5,13 @@ import {
   deleteTransaction,
   getWeeklyComparison,
   getCategoryBreakdown,
+  getSalaryCycleSummary,
   setSetting,
   getSetting
 } from '../db/database.js';
 import { parseExpenseInput } from '../services/ai.js';
 import { checkBudgetAlert } from '../services/budget.js';
-import { formatTransactionSaved, formatWeeklyRecap, formatRupiah } from './formatters.js';
+import { formatTransactionSaved, formatWeeklyRecap, formatMonthlyRecap, formatRupiah } from './formatters.js';
 
 export let bot: Bot | null = null;
 
@@ -69,7 +70,9 @@ export function initBot(serverPublicUrl = ''): Bot | null {
   bot.command('start', async (ctx) => {
     const keyboard = new InlineKeyboard();
     addWebButton(keyboard, '📊 Buka Dashboard');
-    keyboard.row().text('📋 Rekap Minggu Ini', 'btn_rekap');
+    keyboard.row()
+      .text('📋 Rekap Minggu Ini', 'btn_rekap')
+      .text('🗓️ Rekap Bulan Ini', 'btn_rekap_bulan');
 
     await ctx.reply(
       `👋 **Catatin Siap Digunakan!**\n\n` +
@@ -78,7 +81,8 @@ export function initBot(serverPublicUrl = ''): Bot | null {
       `• _"isi bensin 30k, sama ngopi 18rb"_\n` +
       `• _"kemarin belanja indomaret 65.000"_\n\n` +
       `Perintah singkat:\n` +
-      `• /rekap - Lihat ringkasan pengeluaran minggu ini\n` +
+      `• /rekap - Lihat ringkasan pengeluaran minggu ini (Senin - Minggu)\n` +
+      `• /bulan - Lihat rekapan pengeluaran bulan ini (Siklus gajian tgl 25)\n` +
       `• /budget <angka> - Atur target budget mingguan (misal: /budget 500000)\n` +
       `• /web - Buka web dashboard analitik`,
       { reply_markup: keyboard, parse_mode: 'Markdown' }
@@ -93,6 +97,18 @@ export function initBot(serverPublicUrl = ''): Bot | null {
 
     const keyboard = new InlineKeyboard();
     addWebButton(keyboard, '📊 Buka Dashboard Lengkap');
+    keyboard.row().text('🗓️ Rekap Bulan Ini (Siklus Gajian)', 'btn_rekap_bulan');
+    await ctx.reply(message, { reply_markup: keyboard, parse_mode: 'Markdown' });
+  });
+
+  // Command /bulan & /bulanan
+  bot.command(['bulan', 'bulanan'], async (ctx) => {
+    const summary = getSalaryCycleSummary();
+    const message = formatMonthlyRecap(summary);
+
+    const keyboard = new InlineKeyboard();
+    addWebButton(keyboard, '📊 Buka Dashboard');
+    keyboard.row().text('📋 Rekap Minggu Ini', 'btn_rekap');
     await ctx.reply(message, { reply_markup: keyboard, parse_mode: 'Markdown' });
   });
 
@@ -140,6 +156,17 @@ export function initBot(serverPublicUrl = ''): Bot | null {
     const message = formatWeeklyRecap(comparison, topCategories);
     const keyboard = new InlineKeyboard();
     addWebButton(keyboard, '📊 Buka Dashboard Lengkap');
+    keyboard.row().text('🗓️ Rekap Bulan Ini (Siklus Gajian)', 'btn_rekap_bulan');
+    await ctx.reply(message, { reply_markup: keyboard, parse_mode: 'Markdown' });
+  });
+
+  bot.callbackQuery('btn_rekap_bulan', async (ctx) => {
+    await ctx.answerCallbackQuery();
+    const summary = getSalaryCycleSummary();
+    const message = formatMonthlyRecap(summary);
+    const keyboard = new InlineKeyboard();
+    addWebButton(keyboard, '📊 Buka Dashboard');
+    keyboard.row().text('📋 Rekap Minggu Ini', 'btn_rekap');
     await ctx.reply(message, { reply_markup: keyboard, parse_mode: 'Markdown' });
   });
 

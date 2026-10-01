@@ -1,4 +1,12 @@
-import { initDatabase, insertTransactions, getWeeklyComparison, getCategoryBreakdown, getDailyComparison, deleteTransaction } from '../db/database.js';
+import {
+  initDatabase,
+  insertTransactions,
+  getWeeklyComparison,
+  getCategoryBreakdown,
+  getDailyComparison,
+  getSalaryCycleSummary,
+  deleteTransaction
+} from '../db/database.js';
 import { parseWithRegex } from '../services/ai.js';
 import { checkBudgetAlert } from '../services/budget.js';
 import { createTelegramSessionToken, verifyTelegramSessionToken } from '../server/auth.js';
@@ -60,6 +68,24 @@ if (categories.length === 0) {
 const daily = getDailyComparison(comparison.currentWeekStart, comparison.lastWeekStart);
 console.log('Breakdown Harian (Senin-Minggu):', daily.days.length, 'hari');
 console.log('✅ 5. Breakdown kategori dan harian berhasil.');
+
+// 5b. Uji Siklus Gajian (Bulanan cut-off tgl 25)
+const salaryCycle = getSalaryCycleSummary(new Date('2026-10-01'), 25);
+console.log('Siklus Gajian:', {
+  label: salaryCycle.label,
+  total: salaryCycle.total,
+  count: salaryCycle.transactionCount,
+  daysPassed: salaryCycle.daysPassed,
+  totalDays: salaryCycle.totalDays,
+  avgPerDay: salaryCycle.averagePerDay
+});
+if (salaryCycle.startDate !== '2026-09-25' || salaryCycle.endDate !== '2026-10-24') {
+  throw new Error('Rentang siklus gajian tgl 25 tidak sesuai!');
+}
+if (salaryCycle.total <= 0) {
+  throw new Error('Total transaksi siklus gajian harus lebih besar dari 0!');
+}
+console.log('✅ 5b. Rekapan siklus gajian (Cut-off tgl 25) akurat.');
 
 // 6. Uji Alert Budget
 const alert = checkBudgetAlert();

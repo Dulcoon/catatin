@@ -1,4 +1,4 @@
-import { Transaction, WeeklyComparison, CategorySummary } from '../db/database.js';
+import { Transaction, WeeklyComparison, CategorySummary, SalaryCycleSummary } from '../db/database.js';
 
 export function formatRupiah(amount: number): string {
   return `Rp ${amount.toLocaleString('id-ID')}`;
@@ -82,5 +82,55 @@ export function formatWeeklyRecap(
   }
 
   text += `Buka dashboard web untuk melihat rincian grafik harian dan kategori lengkap.`;
+  return text;
+}
+
+// Format Rekap Pengeluaran Siklus Gajian Bulanan
+export function formatMonthlyRecap(summary: SalaryCycleSummary): string {
+  const {
+    label,
+    total,
+    transactionCount,
+    daysPassed,
+    totalDays,
+    averagePerDay,
+    lastCycleTotal,
+    diffPercentage,
+    isMoreThrifty,
+    topCategories,
+    payday
+  } = summary;
+
+  let text = `🗓️ **REKAP PENGELUARAN BULAN INI**\n`;
+  text += `Siklus Gajian: **${label}**\n`;
+  text += `_(Cut-off tgl ${payday} | Hari ke-${daysPassed} dari ${totalDays} hari)_\n`;
+  text += `━━━━━━━━━━━━━━━━━━━━\n\n`;
+
+  text += `💰 Total Pengeluaran: **${formatRupiah(total)}**\n`;
+  text += `📝 Frekuensi: **${transactionCount} transaksi**\n`;
+  text += `⚡ Rata-rata Harian: **${formatRupiah(averagePerDay)} / hari**\n\n`;
+
+  // Status Perbandingan vs Siklus Sebelumnya
+  if (lastCycleTotal > 0) {
+    if (isMoreThrifty) {
+      text += `🟢 **${diffPercentage}% LEBIH HEMAT** dibanding siklus lalu (${formatRupiah(lastCycleTotal)})\n\n`;
+    } else {
+      text += `🔴 **${diffPercentage}% LEBIH BOROS** dibanding siklus lalu (${formatRupiah(lastCycleTotal)})\n\n`;
+    }
+  }
+
+  // Top Kategori
+  if (topCategories.length > 0) {
+    text += `🏷️ **Kategori Pengeluaran Terbesar:**\n`;
+    const top = topCategories.slice(0, 4);
+    top.forEach((cat, index) => {
+      text += `${index + 1}. **${cat.category.toUpperCase()}**: ${formatRupiah(cat.total)} (${cat.percentage}%)\n`;
+    });
+    text += `\n`;
+  } else {
+    text += `_Belum ada transaksi di siklus gajian ini._\n\n`;
+  }
+
+  text += `💡 _Transaksi setelah tgl ${payday} otomatis dihitung masuk ke siklus bulan berikutnya._`;
   return text;
 }

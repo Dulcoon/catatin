@@ -23,6 +23,7 @@ interface SettingsModalProps {
 export function SettingsModal({ open, onOpenChange, onSaved }: SettingsModalProps) {
   const [weeklyBudget, setWeeklyBudget] = useState("500000")
   const [threshold, setThreshold] = useState("80")
+  const [paydayDate, setPaydayDate] = useState("25")
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [testingRecap, setTestingRecap] = useState(false)
@@ -37,6 +38,7 @@ export function SettingsModal({ open, onOpenChange, onSaved }: SettingsModalProp
         .then((settings) => {
           if (settings.weeklyBudget) setWeeklyBudget(settings.weeklyBudget.toString())
           if (settings.warningThresholdPercent) setThreshold(settings.warningThresholdPercent.toString())
+          if (settings.paydayDate) setPaydayDate(settings.paydayDate.toString())
         })
         .catch((err) => {
           console.error("Gagal mengambil pengaturan:", err)
@@ -52,6 +54,7 @@ export function SettingsModal({ open, onOpenChange, onSaved }: SettingsModalProp
     setMessage(null)
     const budgetNum = parseInt(weeklyBudget, 10)
     const thresholdNum = parseInt(threshold, 10)
+    const paydayNum = parseInt(paydayDate, 10)
 
     if (isNaN(budgetNum) || budgetNum < 10000) {
       setMessage({ type: "error", text: "Target budget minimal Rp 10.000." })
@@ -63,11 +66,17 @@ export function SettingsModal({ open, onOpenChange, onSaved }: SettingsModalProp
       return
     }
 
+    if (isNaN(paydayNum) || paydayNum < 1 || paydayNum > 31) {
+      setMessage({ type: "error", text: "Tanggal gajian harus antara tanggal 1 sampai 31." })
+      return
+    }
+
     setSaving(true)
     try {
       await api.updateSettings({
         weeklyBudget: budgetNum,
         warningThresholdPercent: thresholdNum,
+        paydayDate: paydayNum,
       })
       setMessage({ type: "success", text: "Pengaturan berhasil diperbarui." })
       onSaved()
@@ -110,7 +119,7 @@ export function SettingsModal({ open, onOpenChange, onSaved }: SettingsModalProp
         <DialogHeader>
           <DialogTitle className="text-lg font-bold">Pengaturan Budget & Bot</DialogTitle>
           <DialogDescription className="text-xs text-muted-foreground">
-            Sesuaikan target finansial mingguan dan trigger simulasi laporan bot.
+            Sesuaikan target finansial mingguan, siklus gajian, dan trigger simulasi bot.
           </DialogDescription>
         </DialogHeader>
 
@@ -151,6 +160,23 @@ export function SettingsModal({ open, onOpenChange, onSaved }: SettingsModalProp
               />
               <span className="text-[11px] text-muted-foreground">
                 Batas pengeluaran per minggu (dihitung Senin s/d Minggu).
+              </span>
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="payday-date">Tanggal Gajian / Cut-off Siklus Bulanan</Label>
+              <Input
+                id="payday-date"
+                type="number"
+                min={1}
+                max={31}
+                value={paydayDate}
+                onChange={(e) => setPaydayDate(e.target.value)}
+                required
+                className="bg-secondary/40 font-mono"
+              />
+              <span className="text-[11px] text-muted-foreground">
+                Default tgl 25. Transaksi setelah tanggal ini otomatis dihitung sebagai siklus bulan berikutnya.
               </span>
             </div>
 
