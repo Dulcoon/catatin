@@ -5,6 +5,8 @@ import {
   getCategoryBreakdown,
   getDailyComparison,
   getSalaryCycleSummary,
+  getFilteredTransactions,
+  getFilteredTransactionsCount,
   deleteTransaction
 } from '../db/database.js';
 import { parseWithRegex } from '../services/ai.js';
@@ -86,6 +88,21 @@ if (salaryCycle.total <= 0) {
   throw new Error('Total transaksi siklus gajian harus lebih besar dari 0!');
 }
 console.log('✅ 5b. Rekapan siklus gajian (Cut-off tgl 25) akurat.');
+
+// 5c. Uji Filter Riwayat Transaksi (Siklus Bulanan & Mingguan)
+const filteredRange = getFilteredTransactions({
+  startDate: salaryCycle.startDate,
+  endDate: salaryCycle.endDate,
+  limit: 10
+});
+const countInfo = getFilteredTransactionsCount({
+  startDate: salaryCycle.startDate,
+  endDate: salaryCycle.endDate
+});
+if (filteredRange.length === 0 || countInfo.count === 0 || countInfo.totalAmount !== salaryCycle.total) {
+  throw new Error('Filter riwayat transaksi tidak cocok dengan agregasi siklus!');
+}
+console.log(`✅ 5c. Filter riwayat transaksi teruji: ${countInfo.count} item (Total: Rp ${countInfo.totalAmount.toLocaleString('id-ID')}).`);
 
 // 6. Uji Alert Budget
 const alert = checkBudgetAlert();

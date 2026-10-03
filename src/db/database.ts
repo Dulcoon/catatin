@@ -223,13 +223,76 @@ export function deleteTransaction(id: number): boolean {
   return info.changes > 0;
 }
 
+export interface TransactionFilterOptions {
+  limit?: number;
+  offset?: number;
+  startDate?: string;
+  endDate?: string;
+  category?: string;
+}
+
+export function getFilteredTransactions(options: TransactionFilterOptions = {}): Transaction[] {
+  const { limit = 10, offset = 0, startDate, endDate, category } = options;
+  const conditions: string[] = [];
+  const params: any[] = [];
+
+  if (startDate) {
+    conditions.push('date >= ?');
+    params.push(startDate);
+  }
+  if (endDate) {
+    conditions.push('date <= ?');
+    params.push(endDate);
+  }
+  if (category && category !== 'all') {
+    conditions.push('category = ?');
+    params.push(category.toLowerCase().trim());
+  }
+
+  const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+  const sql = `SELECT * FROM transactions ${whereClause} ORDER BY date DESC, id DESC LIMIT ? OFFSET ?`;
+  params.push(limit, offset);
+
+  return db.prepare(sql).all(...params) as Transaction[];
+}
+
+export function getFilteredTransactionsCount(options: Omit<TransactionFilterOptions, 'limit' | 'offset'> = {}): {
+  count: number;
+  totalAmount: number;
+} {
+  const { startDate, endDate, category } = options;
+  const conditions: string[] = [];
+  const params: any[] = [];
+
+  if (startDate) {
+    conditions.push('date >= ?');
+    params.push(startDate);
+  }
+  if (endDate) {
+    conditions.push('date <= ?');
+    params.push(endDate);
+  }
+  if (category && category !== 'all') {
+    conditions.push('category = ?');
+    params.push(category.toLowerCase().trim());
+  }
+
+  const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+  const sql = `SELECT COUNT(*) as count, COALESCE(SUM(amount), 0) as total_amount FROM transactions ${whereClause}`;
+
+  const row = db.prepare(sql).get(...params) as { count: number; total_amount: number };
+  return {
+    count: row ? row.count : 0,
+    totalAmount: row ? row.total_amount : 0
+  };
+}
+
 export function getRecentTransactions(limit = 20, offset = 0): Transaction[] {
-  return db.prepare('SELECT * FROM transactions ORDER BY date DESC, id DESC LIMIT ? OFFSET ?').all(limit, offset) as Transaction[];
+  return getFilteredTransactions({ limit, offset });
 }
 
 export function getTotalTransactionsCount(): number {
-  const row = db.prepare('SELECT COUNT(*) as count FROM transactions').get() as { count: number };
-  return row ? row.count : 0;
+  return getFilteredTransactionsCount().count;
 }
 
 export function getTransactionsBetween(startDate: string, endDate: string): Transaction[] {

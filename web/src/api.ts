@@ -75,9 +75,33 @@ export const api = {
     return await res.json();
   },
 
-  // Ambil Riwayat Transaksi dengan Pagination
-  async getTransactions(page = 1, limit = 10) {
-    const res = await authFetch(`/api/transactions?page=${page}&limit=${limit}`);
+  // Ambil Riwayat Transaksi dengan Filter & Pagination
+  async getTransactions(options: { page?: number; limit?: number; filter?: 'all' | 'week' | 'month'; category?: string } | number = 1, maybeLimit = 10) {
+    let page = 1;
+    let limit = 10;
+    let filter = 'all';
+    let category = '';
+
+    if (typeof options === 'number') {
+      page = options;
+      limit = maybeLimit;
+    } else if (options) {
+      page = options.page || 1;
+      limit = options.limit || 10;
+      if (options.filter) filter = options.filter;
+      if (options.category) category = options.category;
+    }
+
+    const params = new URLSearchParams({
+      page: page.toString(),
+      limit: limit.toString(),
+      filter
+    });
+    if (category && category !== 'all') {
+      params.append('category', category);
+    }
+
+    const res = await authFetch(`/api/transactions?${params.toString()}`);
     if (!res.ok) throw new Error('Gagal mengambil daftar transaksi');
     return await res.json();
   },

@@ -5,7 +5,7 @@ import { LockedScreen } from "@/components/LockedScreen"
 import { HeroMetricCard } from "@/components/HeroMetricCard"
 import { DailyComparisonChart, DailyDataPoint } from "@/components/DailyComparisonChart"
 import { CategoryBreakdown, CategoryDataPoint } from "@/components/CategoryBreakdown"
-import { TransactionsCard, Transaction, PaginationData } from "@/components/TransactionsCard"
+import { TransactionsCard, Transaction, PaginationData, TimeframeFilter } from "@/components/TransactionsCard"
 import { SalaryCycleCard, SalaryCycleData } from "@/components/SalaryCycleCard"
 import { AddTransactionModal } from "@/components/AddTransactionModal"
 import { SettingsModal } from "@/components/SettingsModal"
@@ -24,6 +24,7 @@ export function App() {
   } | null>(null)
   const [salaryCycle, setSalaryCycle] = useState<SalaryCycleData | null>(null)
   const [transactions, setTransactions] = useState<Transaction[]>([])
+  const [transactionFilter, setTransactionFilter] = useState<TimeframeFilter>("all")
   const [pagination, setPagination] = useState<PaginationData>({
     page: 1,
     limit: 10,
@@ -71,10 +72,10 @@ export function App() {
     return false
   }, [])
 
-  // Fetch only transactions with page
-  const fetchTransactions = useCallback(async (page: number) => {
+  // Fetch only transactions with page & filter
+  const fetchTransactions = useCallback(async (page: number, filter: TimeframeFilter = transactionFilter) => {
     try {
-      const txData = await api.getTransactions(page, 10)
+      const txData = await api.getTransactions({ page, limit: 10, filter })
       setTransactions(txData.transactions || [])
       if (txData.pagination) {
         setPagination(txData.pagination)
@@ -82,16 +83,16 @@ export function App() {
     } catch (err) {
       console.error("Error loading transactions:", err)
     }
-  }, [])
+  }, [transactionFilter])
 
   // Load Dashboard Data (Analytics + Monthly + Transactions)
-  const loadDashboardData = useCallback(async (targetPage = 1) => {
+  const loadDashboardData = useCallback(async (targetPage = 1, currentFilter = transactionFilter) => {
     setIsRefreshing(true)
     try {
       const [analyticsData, monthlyData, txData] = await Promise.all([
         api.getWeeklyAnalytics(),
         api.getMonthlyAnalytics(),
-        api.getTransactions(targetPage, 10),
+        api.getTransactions({ page: targetPage, limit: 10, filter: currentFilter }),
       ])
 
       setAnalytics(analyticsData)
@@ -108,20 +109,25 @@ export function App() {
     } finally {
       setIsRefreshing(false)
     }
-  }, [])
+  }, [transactionFilter])
 
   // Initial load
   useEffect(() => {
     authenticate().then((isAuthed) => {
       if (isAuthed) {
-        loadDashboardData(1)
+        loadDashboardData(1, "all")
       }
     })
   }, [authenticate, loadDashboardData])
 
   // Handlers
   const handlePageChange = (newPage: number) => {
-    fetchTransactions(newPage)
+    fetchTransactions(newPage, transactionFilter)
+  }
+
+  const handleFilterChange = (newFilter: TimeframeFilter) => {
+    setTransactionFilter(newFilter)
+    fetchTransactions(1, newFilter)
   }
 
   const handleAddTransaction = async (tx: {
@@ -131,8 +137,8 @@ export function App() {
     date: string
   }) => {
     await api.addTransaction(tx)
-    // Refresh to page 1 so the new transaction is immediately visible at the top
-    await loadDashboardData(1)
+    // Refresh to page 1 so the new transaction is immediately visible
+    await loadDashboardData(1, transactionFilter)
   }
 
   const handleDeleteTransaction = async (id: number) => {
@@ -141,7 +147,7 @@ export function App() {
     const targetPage = transactions.length === 1 && pagination.page > 1
       ? pagination.page - 1
       : pagination.page
-    await loadDashboardData(targetPage)
+    await loadDashboardData(targetPage, transactionFilter)
   }
 
   // Display locked screen if unauthorized
@@ -171,7 +177,7 @@ export function App() {
       <Header
         periodLabel={periodLabel}
         isRefreshing={isRefreshing}
-        onRefresh={() => loadDashboardData(pagination.page)}
+        onRefresh={() => loadDashboardData(pagination.page, transactionFilter)}
         onOpenSettings={() => setModalSettingsOpen(true)}
       />
 
@@ -189,10 +195,12 @@ export function App() {
         {/* Category Breakdown */}
         <CategoryBreakdown categories={analytics?.categories || []} />
 
-        {/* Transactions List with Pagination */}
+        {/* Transactions List with Segmented Timeframe Filter & Pagination */}
         <TransactionsCard
           transactions={transactions}
           pagination={pagination}
+          activeFilter={transactionFilter}
+          onFilterChange={handleFilterChange}
           onPageChange={handlePageChange}
           onOpenAddModal={() => setModalAddOpen(true)}
           onDeleteTransaction={handleDeleteTransaction}
@@ -209,7 +217,7 @@ export function App() {
       <SettingsModal
         open={modalSettingsOpen}
         onOpenChange={setModalSettingsOpen}
-        onSaved={() => loadDashboardData(pagination.page)}
+        onSaved={() => loadDashboardData(pagination.page, transactionFilter)}
       />
     </div>
   )

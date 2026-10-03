@@ -9,6 +9,9 @@ import {
   getDailyComparison,
   getRecentTransactions,
   getTotalTransactionsCount,
+  getFilteredTransactions,
+  getFilteredTransactionsCount,
+  getWeekDateRange,
   getSalaryCycleSummary,
   insertTransactions,
   deleteTransaction,
@@ -100,14 +103,36 @@ app.get('/api/analytics/monthly', requireAuth, (c) => {
   });
 });
 
-// Daftar Transaksi dengan Pagination
+// Daftar Transaksi dengan Filter & Pagination
 app.get('/api/transactions', requireAuth, (c) => {
   const page = Math.max(1, parseInt(c.req.query('page') || '1', 10));
   const limit = Math.max(1, Math.min(100, parseInt(c.req.query('limit') || '10', 10)));
   const offset = (page - 1) * limit;
+  const filter = (c.req.query('filter') || 'all') as 'all' | 'week' | 'month';
+  const category = c.req.query('category') || undefined;
 
-  const transactions = getRecentTransactions(limit, offset);
-  const total = getTotalTransactionsCount();
+  let startDate: string | undefined = undefined;
+  let endDate: string | undefined = undefined;
+  let filterLabel = 'Semua Transaksi';
+
+  if (filter === 'week') {
+    const week = getWeekDateRange();
+    startDate = week.start;
+    endDate = week.end;
+    filterLabel = `Minggu Ini (${week.start} s/d ${week.end})`;
+  } else if (filter === 'month') {
+    const cycle = getSalaryCycleSummary();
+    startDate = cycle.startDate;
+    endDate = cycle.endDate;
+    filterLabel = `Bulan Ini (${cycle.label})`;
+  } else if (c.req.query('startDate') && c.req.query('endDate')) {
+    startDate = c.req.query('startDate');
+    endDate = c.req.query('endDate');
+    filterLabel = `${startDate} s/d ${endDate}`;
+  }
+
+  const transactions = getFilteredTransactions({ limit, offset, startDate, endDate, category });
+  const { count: total, totalAmount } = getFilteredTransactionsCount({ startDate, endDate, category });
   const totalPages = Math.max(1, Math.ceil(total / limit));
 
   return c.json({
@@ -116,7 +141,12 @@ app.get('/api/transactions', requireAuth, (c) => {
       page,
       limit,
       total,
-      totalPages
+      totalPages,
+      filter,
+      totalAmount,
+      filterLabel,
+      startDate,
+      endDate
     }
   });
 });
