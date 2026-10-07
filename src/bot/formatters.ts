@@ -134,3 +134,34 @@ export function formatMonthlyRecap(summary: SalaryCycleSummary): string {
   text += `💡 _Transaksi setelah tgl ${payday} otomatis dihitung masuk ke siklus bulan berikutnya._`;
   return text;
 }
+
+// Format Notifikasi Hasil Scan Bukti Pembayaran / iOS Shortcut
+export function formatReceiptScanNotification(
+  items: Transaction[],
+  comparison: WeeklyComparison,
+  engine: 'gemini_vision' | 'fallback_vision' | 'none' = 'gemini_vision'
+): string {
+  let text = `📸 **Transaksi Berhasil Dicatat dari Bukti Pembayaran!**\n\n`;
+
+  for (const item of items) {
+    text += `• **${item.description}**\n  Nominal: **${formatRupiah(item.amount)}**\n  Kategori: \`#${item.category}\` | Tanggal: ${item.date}\n\n`;
+  }
+
+  text += `━━━━━━━━━━━━━━━━━━━━\n`;
+  text += `📊 **Status Budget Minggu Ini:**\n`;
+  text += `Total Terpakai: ${formatRupiah(comparison.currentWeekTotal)} / ${formatRupiah(comparison.budget)}\n`;
+  text += `${generateProgressBar(comparison.budgetPercentage)}\n`;
+
+  if (comparison.remainingBudget >= 0) {
+    text += `Sisa Budget: **${formatRupiah(comparison.remainingBudget)}**\n`;
+  } else {
+    text += `⚠️ Overbudget: **${formatRupiah(Math.abs(comparison.remainingBudget))}**\n`;
+  }
+
+  if (engine !== 'gemini_vision' && engine !== 'none') {
+    text += `\n_(Diproses via: ${engine === 'fallback_vision' ? 'Backup Vision AI' : 'Vision Parser'})_`;
+  }
+
+  return text;
+}
+

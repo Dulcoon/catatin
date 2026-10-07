@@ -1,6 +1,8 @@
-import { Bot, InlineKeyboard } from 'grammy';
+import { Bot, InlineKeyboard, InputFile } from 'grammy';
 import { config } from '../config.js';
 import {
+  Transaction,
+  WeeklyComparison,
   insertTransactions,
   deleteTransaction,
   getWeeklyComparison,
@@ -9,9 +11,15 @@ import {
   setSetting,
   getSetting
 } from '../db/database.js';
-import { parseExpenseInput } from '../services/ai.js';
+import { parseExpenseInput, parseReceiptImage } from '../services/ai.js';
 import { checkBudgetAlert } from '../services/budget.js';
-import { formatTransactionSaved, formatWeeklyRecap, formatMonthlyRecap, formatRupiah } from './formatters.js';
+import {
+  formatTransactionSaved,
+  formatWeeklyRecap,
+  formatMonthlyRecap,
+  formatRupiah,
+  formatReceiptScanNotification
+} from './formatters.js';
 
 export let bot: Bot | null = null;
 
@@ -177,7 +185,72 @@ export function initBot(serverPublicUrl = ''): Bot | null {
       text: success ? 'Transaksi berhasil dihapus' : 'Transaksi tidak ditemukan'
     });
     if (success) {
-      await ctx.editMessageText('🗑️ Transaksi telah dibatalkan/dihapus.');
+      try {
+        if (ctx.callbackQuery.message?.caption !== undefined) {
+          await ctx.editMessageCaption({ caption: '🗑️ Transaksi telah dibatalkan/dihapus.' });
+        } else {
+          await ctx.editMessageText('🗑️ Transaksi telah dibatalkan/dihapus.');
+        }
+      } catch (err) {
+        console.warn('[Bot] Gagal mengedit pesan saat delete:', err);
+      }
+    }
+  });
+
+  // Listener Foto / Bukti Pembayaran Langsung dari Chat Telegram
+  bot.on(':photo', async (ctx) => {
+    await ctx.replyWithChatAction('typing');
+
+    try {
+      const photos = ctx.message?.photo;
+      if (!photos || photos.length === 0) return;
+
+      const bestPhoto = photos[photos.length - 1];
+      const file = await ctx.api.getFile(bestPhoto.file_id);
+      if (!file.file_path) {
+        throw new Error('Gagal mengakses file gambar dari server Telegram');
+      }
+
+      const fileUrl = `https://api.telegram.org/file/bot${config.telegramBotToken}/${file.file_path}`;
+      const res = await fetch(fileUrl);
+      if (!res.ok) {
+        throw new Error(`Gagal mengunduh gambar: status ${res.status}`);
+      }
+      const imageBuffer = Buffer.from(await res.arrayBuffer());
+
+      const { items, engineUsed } = await parseReceiptImage(imageBuffer, 'image/jpeg', new Date());
+
+      if (items.length === 0) {
+        await ctx.reply(
+          `🤔 Aku belum bisa mengenali nominal atau struk pembayaran dari foto ini.\n` +
+          `Pastikan foto jelas memperlihatkan nominal transaksi yang berhasil.`,
+          { parse_mode: 'Markdown' }
+        );
+        return;
+      }
+
+      const savedItems = insertTransactions(items);
+      const comparison = getWeeklyComparison();
+      const replyText = formatReceiptScanNotification(savedItems, comparison, engineUsed);
+
+      const keyboard = new InlineKeyboard();
+      if (savedItems.length === 1) {
+        keyboard.text('❌ Batalkan Transaksi', `delete_${savedItems[0].id}`);
+      }
+      addWebButton(keyboard, '📊 Buka Dashboard');
+
+      await ctx.reply(replyText, {
+        reply_markup: keyboard,
+        parse_mode: 'Markdown'
+      });
+
+      const alert = checkBudgetAlert();
+      if (alert.shouldAlert && alert.message) {
+        await ctx.reply(alert.message, { parse_mode: 'Markdown' });
+      }
+    } catch (err: any) {
+      console.error('[Bot Photo Error] Gagal memproses foto:', err);
+      await ctx.reply(`⚠️ Terjadi kesalahan saat membaca foto: ${err.message}`);
     }
   });
 
@@ -248,3 +321,52 @@ export async function sendNotificationToAdmin(message: string, replyMarkup?: any
     return false;
   }
 }
+
+// Helper untuk mengirim notifikasi foto struk dari iOS Shortcut ke Admin Telegram
+export async function sendReceiptNotificationToAdmin(
+  imageBuffer: Buffer,
+  savedItems: Transaction[],
+  comparison: WeeklyComparison,
+  engineUsed: 'gemini_vision' | 'fallback_vision' | 'none'
+): Promise<boolean> {
+  if (!bot || !config.adminTelegramId) return false;
+
+  const keyboard = new InlineKeyboard();
+  if (savedItems.length === 1) {
+    keyboard.text('🗑️ Batalkan Transaksi', `delete_${savedItems[0].id}`);
+  }
+  const url = config.publicUrl || `http://localhost:${config.port}`;
+  if (url.startsWith('https://')) {
+    keyboard.webApp('📊 Buka Dashboard', url);
+  } else if (url.startsWith('http://') && !url.includes('localhost')) {
+    keyboard.url('📊 Buka Dashboard', url);
+  }
+
+  const caption = formatReceiptScanNotification(savedItems, comparison, engineUsed);
+
+  try {
+    await bot.api.sendPhoto(
+      config.adminTelegramId,
+      new InputFile(imageBuffer, 'receipt.jpg'),
+      {
+        caption,
+        reply_markup: keyboard,
+        parse_mode: 'Markdown'
+      }
+    );
+    return true;
+  } catch (err) {
+    console.warn('[Telegram Bot] Gagal mengirim foto bukti ke admin, mencoba pesan teks:', err);
+    try {
+      await bot.api.sendMessage(config.adminTelegramId, caption, {
+        reply_markup: keyboard,
+        parse_mode: 'Markdown'
+      });
+      return true;
+    } catch (msgErr) {
+      console.error('[Telegram Bot] Gagal kirim pesan admin:', msgErr);
+      return false;
+    }
+  }
+}
+

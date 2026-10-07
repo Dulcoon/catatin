@@ -9,6 +9,9 @@ export const config = {
   weeklyBudget: parseInt(process.env.WEEKLY_BUDGET || '500000', 10),
   warningThresholdPercent: parseInt(process.env.WARNING_THRESHOLD_PERCENT || '80', 10),
   
+  // iOS Shortcut API Key
+  shortcutApiKey: process.env.SHORTCUT_API_KEY || 'catatin_sec_e653617a959fdd9706a501ed',
+
   // AI Config
   geminiApiKey: process.env.GEMINI_API_KEY || '',
   geminiModel: process.env.GEMINI_MODEL || 'gemini-2.5-flash',

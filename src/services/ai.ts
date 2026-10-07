@@ -11,6 +11,15 @@ Aturan:
 - Tanggal gunakan YYYY-MM-DD. Hitung tanggal relatif terhadap tanggal referensi (misal "kemarin" = H-1).
 - Deskripsi singkat nama barang/keperluan.`;
 
+const SYSTEM_PROMPT_RECEIPT = `Ekstrak data transaksi pengeluaran dari foto bukti transfer, struk belanja, nota, atau screenshot pembayaran m-banking/e-wallet/QRIS.
+Kategori wajib salah satu dari: makan, kopi, jajan, bensin, belanja, tagihan, transport, hiburan, lainnya.
+Aturan:
+- Cari total nominal transaksi pembayaran yang dibayar. Abaikan nomor rekening, saldo sisa, atau nomor referensi.
+- Jika ada biaya admin, sertakan dalam total nominal atau catat total debit akhir.
+- Ekstrak nama penerima/merchant/tujuan/keterangan jika ada (contoh: "Kopi Kenangan", "Indomaret", "Pertamina", "Transfer ke Budi") sebagai deskripsi.
+- Format tanggal YYYY-MM-DD. Jika tidak tertera tahun/tanggal lengkap, gunakan tanggal referensi hari ini.
+- Jika gambar bukan bukti transaksi pembayaran yang sah, kembalikan items kosong [].`;
+
 // Skema output ketat (Constrained Decoding) - Gemini dikunci di level token
 // sehingga mustahil memproduksi teks basa-basi atau format lain di luar JSON ini.
 const GEMINI_RESPONSE_SCHEMA: any = {
@@ -223,3 +232,133 @@ export async function parseExpenseInput(userText: string, referenceDate = new Da
   const regexItems = parseWithRegex(userText, todayStr);
   return { items: regexItems, engineUsed: 'regex' };
 }
+
+// Ekstraksi Foto Bukti Pembayaran / Struk via Gemini Vision
+async function parseReceiptWithGemini(
+  imageBuffer: Buffer,
+  mimeType: string,
+  todayStr: string
+): Promise<NewTransaction[]> {
+  if (!config.geminiApiKey) {
+    throw new Error('GEMINI_API_KEY is not configured');
+  }
+
+  const genAI = new GoogleGenerativeAI(config.geminiApiKey);
+  const model = genAI.getGenerativeModel({
+    model: config.geminiModel,
+    systemInstruction: SYSTEM_PROMPT_RECEIPT,
+    generationConfig: {
+      responseMimeType: 'application/json',
+      responseSchema: GEMINI_RESPONSE_SCHEMA,
+      maxOutputTokens: 350,
+      temperature: 0.1
+    }
+  });
+
+  const prompt = `Tanggal referensi hari ini: ${todayStr}. Analisis struk/screenshot pembayaran terlampir.`;
+  const imagePart = {
+    inlineData: {
+      data: imageBuffer.toString('base64'),
+      mimeType: mimeType || 'image/jpeg'
+    }
+  };
+
+  const result = await model.generateContent([prompt, imagePart]);
+  const responseText = result.response.text();
+
+  return parseJsonResponse(responseText, '[Foto Bukti Pembayaran]', todayStr);
+}
+
+// Ekstraksi Foto Bukti Pembayaran via OpenAI-compatible Vision API (Fallback)
+async function parseReceiptWithFallback(
+  imageBuffer: Buffer,
+  mimeType: string,
+  todayStr: string
+): Promise<NewTransaction[]> {
+  if (!config.fallbackAiApiKey) {
+    throw new Error('FALLBACK_AI_API_KEY is not configured');
+  }
+
+  const endpoint = `${config.fallbackAiBaseUrl.replace(/\/+$/, '')}/chat/completions`;
+  const base64Data = imageBuffer.toString('base64');
+  const dataUrl = `data:${mimeType || 'image/jpeg'};base64,${base64Data}`;
+
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${config.fallbackAiApiKey}`
+    },
+    body: JSON.stringify({
+      model: config.fallbackAiModel,
+      temperature: 0.1,
+      max_tokens: 350,
+      response_format: { type: 'json_object' },
+      messages: [
+        {
+          role: 'system',
+          content: `${SYSTEM_PROMPT_RECEIPT}\nKembalikan HANYA format JSON: {"items":[{"date":"YYYY-MM-DD","amount":0,"category":"...","description":"..."}]}`
+        },
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: `Tanggal referensi hari ini: ${todayStr}. Analisis struk/screenshot pembayaran terlampir.` },
+            { type: 'image_url', image_url: { url: dataUrl } }
+          ]
+        }
+      ]
+    })
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Fallback Vision AI failed with status ${response.status}: ${errorText}`);
+  }
+
+  const data = (await response.json()) as any;
+  const content = data.choices?.[0]?.message?.content;
+  if (!content) {
+    throw new Error('No content received from fallback Vision AI');
+  }
+
+  return parseJsonResponse(content, '[Foto Bukti Pembayaran]', todayStr);
+}
+
+// Fungsi Utama: Parsing Foto / Screenshot Bukti Transaksi
+export async function parseReceiptImage(
+  imageBuffer: Buffer,
+  mimeType = 'image/jpeg',
+  referenceDate = new Date()
+): Promise<{
+  items: NewTransaction[];
+  engineUsed: 'gemini_vision' | 'fallback_vision' | 'none';
+}> {
+  const todayStr = referenceDate.toISOString().split('T')[0];
+
+  // 1. Coba Google Gemini Vision Flash (Multimodal)
+  if (config.geminiApiKey) {
+    try {
+      const items = await parseReceiptWithGemini(imageBuffer, mimeType, todayStr);
+      if (items.length > 0) {
+        return { items, engineUsed: 'gemini_vision' };
+      }
+    } catch (err: any) {
+      console.warn(`[AI Vision] Gemini Flash Vision error: ${err.message}. Mencoba fallback...`);
+    }
+  }
+
+  // 2. Coba Fallback AI Vision
+  if (config.fallbackAiApiKey) {
+    try {
+      const items = await parseReceiptWithFallback(imageBuffer, mimeType, todayStr);
+      if (items.length > 0) {
+        return { items, engineUsed: 'fallback_vision' };
+      }
+    } catch (err: any) {
+      console.warn(`[AI Vision] Fallback Vision AI error: ${err.message}`);
+    }
+  }
+
+  return { items: [], engineUsed: 'none' };
+}
+

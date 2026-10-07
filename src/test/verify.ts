@@ -24,9 +24,10 @@ const sampleChat1 = "tadi siang makan padang 25rb sama es teh 5k";
 const sampleChat2 = "isi bensin 35k dan ngopi 18rb";
 const sampleChat3 = "kemarin belanja indomaret 75.000";
 
-const parsed1 = parseWithRegex(sampleChat1, "2026-09-29");
-const parsed2 = parseWithRegex(sampleChat2, "2026-09-29");
-const parsed3 = parseWithRegex(sampleChat3, "2026-09-29");
+const testDate = new Date().toISOString().split('T')[0];
+const parsed1 = parseWithRegex(sampleChat1, testDate);
+const parsed2 = parseWithRegex(sampleChat2, testDate);
+const parsed3 = parseWithRegex(sampleChat3, testDate);
 
 console.log('Parsed Chat 1:', parsed1);
 console.log('Parsed Chat 2:', parsed2);
@@ -118,6 +119,18 @@ if (!isTokenValid) {
   throw new Error('Verifikasi token sesi Telegram gagal!');
 }
 console.log('✅ 7. Otentikasi sesi Telegram kriptografis valid.');
+
+// 7b. Uji Konfigurasi Kunci Pintasan iOS & AI Vision Handler
+import { config } from '../config.js';
+import { parseReceiptImage } from '../services/ai.js';
+if (!config.shortcutApiKey || config.shortcutApiKey.length < 10) {
+  throw new Error('SHORTCUT_API_KEY tidak terkonfigurasi dengan benar!');
+}
+if (typeof parseReceiptImage !== 'function') {
+  throw new Error('Modul parseReceiptImage tidak tersedia!');
+}
+console.log(`✅ 7b. Proteksi Apple Shortcuts iOS aktif (Key: ${config.shortcutApiKey.substring(0, 15)}...).`);
+
 
 // 8. Uji Hapus Transaksi (Cleanup test records)
 for (const item of inserted) {

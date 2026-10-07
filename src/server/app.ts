@@ -20,6 +20,9 @@ import {
 } from '../db/database.js';
 import { verifyTelegramWebAppData, createTelegramSessionToken, verifyTelegramSessionToken } from './auth.js';
 import { runWeeklyRecapJob } from '../services/cron.js';
+import { config } from '../config.js';
+import { parseReceiptImage } from '../services/ai.js';
+import { sendReceiptNotificationToAdmin } from '../bot/bot.js';
 
 export const app = new Hono();
 
@@ -172,6 +175,116 @@ app.post('/api/transactions', requireAuth, async (c) => {
 
   return c.json({ success: true, transaction: inserted[0] });
 });
+
+// Scan & Catat Transaksi dari Foto Bukti Pembayaran (Khusus Apple Shortcuts iOS & Multimodal Vision)
+app.post('/api/transactions/scan-receipt', async (c) => {
+  // Verifikasi Kunci Rahasia / Auth
+  const apiKey = c.req.header('x-api-key');
+  const authHeader = c.req.header('authorization');
+  const bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.substring(7) : authHeader;
+  const candidateKey = apiKey || bearerToken;
+
+  const isShortcutValid = candidateKey && candidateKey === config.shortcutApiKey;
+  const isSessionValid = bearerToken && verifyTelegramSessionToken(bearerToken);
+
+  if (!isShortcutValid && !isSessionValid) {
+    return c.json({
+      success: false,
+      error: 'Akses Ditolak. Header X-API-Key atau Authorization tidak valid.'
+    }, 401);
+  }
+
+  try {
+    const contentType = c.req.header('content-type') || '';
+    let imageBuffer: Buffer | null = null;
+    let mimeType = 'image/jpeg';
+
+    if (contentType.includes('multipart/form-data') || contentType.includes('application/x-www-form-urlencoded')) {
+      const body = await c.req.parseBody();
+      const fileOrBlob = body['image'] || body['file'] || body['photo'];
+
+      if (fileOrBlob && typeof fileOrBlob === 'object' && 'arrayBuffer' in fileOrBlob) {
+        const arrayBuf = await (fileOrBlob as any).arrayBuffer();
+        imageBuffer = Buffer.from(arrayBuf);
+        if ((fileOrBlob as any).type) {
+          mimeType = (fileOrBlob as any).type;
+        }
+      } else if (typeof fileOrBlob === 'string') {
+        const cleanBase64 = fileOrBlob.replace(/^data:image\/[a-z]+;base64,/, '');
+        imageBuffer = Buffer.from(cleanBase64, 'base64');
+      }
+    } else if (contentType.includes('application/json')) {
+      const json = await c.req.json().catch(() => ({}));
+      const base64Str = json.image || json.photo || json.data;
+      if (base64Str) {
+        const cleanBase64 = base64Str.replace(/^data:image\/[a-z]+;base64,/, '');
+        imageBuffer = Buffer.from(cleanBase64, 'base64');
+        if (json.mimeType) mimeType = json.mimeType;
+      }
+    } else {
+      // Jika dikirim raw binary stream
+      const arrayBuf = await c.req.arrayBuffer();
+      if (arrayBuf && arrayBuf.byteLength > 0) {
+        imageBuffer = Buffer.from(arrayBuf);
+        if (contentType.startsWith('image/')) {
+          mimeType = contentType;
+        }
+      }
+    }
+
+    if (!imageBuffer || imageBuffer.length === 0) {
+      return c.json({
+        success: false,
+        error: 'Tidak ada data gambar yang valid diterima. Sertakan field "image" di form.'
+      }, 400);
+    }
+
+    // Analisis gambar menggunakan AI Vision
+    const { items, engineUsed } = await parseReceiptImage(imageBuffer, mimeType, new Date());
+
+    if (items.length === 0) {
+      return c.json({
+        success: false,
+        message: 'Nominal transaksi atau struk pembayaran tidak terdeteksi dari foto.',
+        error: 'Unrecognized receipt'
+      }, 422);
+    }
+
+    // Simpan ke database SQLite
+    const savedItems = insertTransactions(items);
+    const comparison = getWeeklyComparison();
+    const totalAmount = savedItems.reduce((acc, curr) => acc + curr.amount, 0);
+    const primaryItem = savedItems[0];
+
+    // Kirim notifikasi foto + tombol undo ke Telegram secara background (tidak memblokir respon iOS)
+    sendReceiptNotificationToAdmin(imageBuffer, savedItems, comparison, engineUsed).catch(err => {
+      console.warn('[Scan-Receipt] Gagal mengirim pesan notifikasi Telegram:', err);
+    });
+
+    const summaryMessage = `Rp ${totalAmount.toLocaleString('id-ID')} (${primaryItem.category}) berhasil dicatat!`;
+
+    return c.json({
+      success: true,
+      message: summaryMessage,
+      data: {
+        totalAmount,
+        category: primaryItem.category,
+        description: primaryItem.description,
+        date: primaryItem.date,
+        items: savedItems,
+        engineUsed,
+        remainingBudget: comparison.remainingBudget
+      }
+    });
+  } catch (err: any) {
+    console.error('[Scan-Receipt Error] Gagal memproses receipt:', err);
+    return c.json({
+      success: false,
+      error: `Gagal memproses struk: ${err.message}`
+    }, 500);
+  }
+});
+
 
 // Hapus Transaksi
 app.delete('/api/transactions/:id', requireAuth, (c) => {
